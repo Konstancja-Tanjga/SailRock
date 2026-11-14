@@ -108,7 +108,17 @@ export function lookupRepetitive(
 ): RepetitivePlan {
   const penalty = timePenalty(previous.group, surfaceMinutes, depth, previous.tableTime)
   const usedDepth = penalty.kind === 'previous' ? Math.max(depth, previous.depth) : depth
-  const plan = lookup(usedDepth, time + penalty.minutes)
+  let plan: TablePlan
+  try {
+    plan = lookup(usedDepth, time + penalty.minutes)
+  } catch (error) {
+    if (error instanceof OutOfTableError && penalty.minutes > 0) {
+      throw new OutOfTableError(
+        `${time} min + ${penalty.minutes} min zwiększenia czasu podstawowego = ${time + penalty.minutes} min. ${error.message}`,
+      )
+    }
+    throw error
+  }
   return { ...plan, depth, time, penalty }
 }
 
