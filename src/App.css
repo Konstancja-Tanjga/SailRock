@@ -107,3 +107,35 @@
   line-height: var(--bh-text-leading-normal);
   color: var(--bh-text-secondary);
 }
+
+/* Tabliczka: plan dnia dużą czcionką, do przepisania przed wejściem do wody. */
+.sr-slate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bh-gap-loose);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sr-slate-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bh-gap-tight);
+  padding: var(--bh-padding-inline);
+  border-radius: var(--bh-radius-surface);
+  background: var(--bh-surface-sunken);
+  color: var(--bh-text-primary);
+}
+
+.sr-slate-label {
+  font-size: var(--bh-text-size-caption);
+  color: var(--bh-text-secondary);
+}
+
+.sr-slate-line {
+  font-size: var(--bh-text-size-display);
+  font-weight: var(--bh-text-weight-emphasis);
+  line-height: var(--bh-text-leading-tight);
+  font-variant-numeric: tabular-nums;
+}

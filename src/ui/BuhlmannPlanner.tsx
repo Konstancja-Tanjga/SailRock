@@ -1,6 +1,8 @@
 import { Badge, Button, Card, DescriptionList, Input, StateBlock, Table } from '@bighat/ui'
 import type { DescriptionItem } from '@bighat/ui'
+import { useState } from 'react'
 import { ASCENT_RATE } from '../tables/buhlmannHahn0_250'
+import type { GasProfile } from '../tables/gasPlan'
 import {
   lookup,
   lookupRepetitive,
@@ -8,30 +10,32 @@ import {
   type TablePlan,
   type TableStop,
 } from '../tables/tablePlanner'
-import { formatMinutes, parseNumber } from './format'
-import { GasResult, GasSettingsCard, type GasForm } from './GasSection'
+import { formatMinutes, parseNumber, surfaceInterval } from './format'
+import { turnPressure, type GasForm } from './gasForm'
+import { GasResult, GasSettingsCard } from './GasSection'
+import { IntervalFields } from './IntervalFields'
 import { SavedPlans } from './SavedPlans'
+import { Slate, type SlateEntry } from './Slate'
 import { Stats } from './Stats'
-import { useState } from 'react'
 import { usePersistentState } from './usePersistentState'
 
-type DiveForm = { depth: string; time: string; hours: string; minutes: string }
+type DiveForm = { depth: string; time: string; end: string; start: string }
 
 type Outcome =
   | { status: 'empty' }
   | { status: 'blocked' }
   | { status: 'error'; message: string }
-  | { status: 'ok'; plan: TablePlan | RepetitivePlan }
+  | { status: 'ok'; plan: TablePlan | RepetitivePlan; interval: number }
 
-const EMPTY: DiveForm = { depth: '', time: '', hours: '1', minutes: '0' }
+const EMPTY: DiveForm = { depth: '', time: '', end: '', start: '' }
 
 function plan(dives: DiveForm[]): Outcome[] {
   const outcomes: Outcome[] = []
   dives.forEach((dive, i) => {
     const depth = parseNumber(dive.depth)
     const time = parseNumber(dive.time)
-    const interval = parseNumber(dive.hours || '0') * 60 + parseNumber(dive.minutes || '0')
-    if (!(depth > 0) || !(time > 0) || (i > 0 && !(interval >= 0))) {
+    const interval = i > 0 ? surfaceInterval(dive.end, dive.start) : 0
+    if (!(depth > 0) || !(time > 0) || !Number.isFinite(interval)) {
       outcomes.push({ status: 'empty' })
       return
     }
@@ -43,6 +47,7 @@ function plan(dives: DiveForm[]): Outcome[] {
     try {
       outcomes.push({
         status: 'ok',
+        interval,
         plan: previous ? lookupRepetitive(previous.plan, interval, depth, time) : lookup(depth, time),
       })
     } catch (error) {
@@ -51,6 +56,13 @@ function plan(dives: DiveForm[]): Outcome[] {
   })
   return outcomes
 }
+
+const gasProfile = (p: TablePlan): GasProfile => ({
+  depth: p.depth,
+  time: p.time,
+  stops: p.stops,
+  ascentRate: ASCENT_RATE,
+})
 
 function penaltyText(p: RepetitivePlan): string {
   if (p.penalty.kind === 'first') return '0 min — przerwa na tyle długa, że to nurkowanie liczy się jako pierwsze'
@@ -99,10 +111,7 @@ function Result({ plan: p, gas }: { plan: TablePlan | RepetitivePlan; gas: GasFo
         />
       )}
       <DescriptionList items={items} density="compact" ariaLabel="Szczegóły odczytu" />
-      <GasResult
-        form={gas}
-        profile={{ depth: p.depth, time: p.time, stops: p.stops, ascentRate: ASCENT_RATE }}
-      />
+      <GasResult form={gas} profile={gasProfile(p)} />
       {beyond && (
         <p className="sr-note">
           Plan wychodzi poza uprawnienia AOWD + nitrox:{' '}
@@ -116,10 +125,41 @@ function Result({ plan: p, gas }: { plan: TablePlan | RepetitivePlan; gas: GasFo
   )
 }
 
-export function BuhlmannPlanner({ gas, onGasChange }: { gas: GasForm; onGasChange: (gas: GasForm) => void }) {
-  const [dives, setDives] = usePersistentState<DiveForm[]>('sailrock.buhlmann', [EMPTY])
+function slateEntries(outcomes: Outcome[], gas: GasForm): SlateEntry[] {
+  const entries: SlateEntry[] = []
+  outcomes.forEach((o, i) => {
+    if (o.status !== 'ok') return
+    const p = o.plan
+    const turn = turnPressure(gasProfile(p), gas)
+    entries.push({
+      label: i === 0 ? 'Nurkowanie 1' : `Nurkowanie ${i + 1} · po ${formatMinutes(o.interval)} przerwy`,
+      headline: `${p.depth} m · ${p.time} min`,
+      lines: [
+        p.stops.length > 0
+          ? p.stops.map((s) => `${s.depth} m ${s.minutes}′`).join(' · ')
+          : 'Bez przystanków deko',
+        `Grupa ${p.group}`,
+        ...(turn === null ? [] : [`Wynurzenie od ${turn} bar`]),
+      ],
+    })
+  })
+  return entries
+}
+
+export function BuhlmannPlanner({
+  gas,
+  onGasChange,
+}: {
+  gas: GasForm
+  onGasChange: (gas: GasForm) => void
+}) {
+  const [dives, setDives] = usePersistentState<DiveForm[]>('sailrock.buhlmann.v2', [EMPTY])
   const [undo, setUndo] = useState<DiveForm[] | null>(null)
   const outcomes = plan(dives)
+  const change = (next: DiveForm[]) => {
+    setUndo(dives)
+    setDives(next)
+  }
   const update = (i: number, patch: Partial<DiveForm>) =>
     setDives(dives.map((d, k) => (k === i ? { ...d, ...patch } : d)))
 
@@ -143,35 +183,14 @@ export function BuhlmannPlanner({ gas, onGasChange }: { gas: GasForm; onGasChang
                     tone="critical"
                     size="sm"
                     aria-label={`Usuń nurkowanie ${i + 1}`}
-                    onClick={() => {
-                      setUndo(dives)
-                      setDives(dives.filter((_, k) => k !== i))
-                    }}
+                    onClick={() => change(dives.filter((_, k) => k !== i))}
                   >
                     Usuń
                   </Button>
                 )}
               </div>
               {i > 0 && (
-                <div className="sr-fields" role="group" aria-label="Przerwa na powierzchni">
-                  <Input
-                    label="Przerwa: godziny"
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    value={dive.hours}
-                    onChange={(e) => update(i, { hours: e.target.value })}
-                  />
-                  <Input
-                    label="Przerwa: minuty"
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    max={59}
-                    value={dive.minutes}
-                    onChange={(e) => update(i, { minutes: e.target.value })}
-                  />
-                </div>
+                <IntervalFields end={dive.end} start={dive.start} onChange={(patch) => update(i, patch)} />
               )}
               <div className="sr-fields">
                 <Input
@@ -197,8 +216,8 @@ export function BuhlmannPlanner({ gas, onGasChange }: { gas: GasForm; onGasChang
                 <StateBlock
                   state="empty"
                   scope="inline"
-                  title="Podaj głębokość i czas"
-                  description="Wynik pojawi się od razu po wpisaniu obu wartości."
+                  title={i > 0 ? 'Podaj godziny, głębokość i czas' : 'Podaj głębokość i czas'}
+                  description="Wynik pojawi się od razu po wpisaniu wszystkich wartości."
                 />
               )}
               {outcome.status === 'blocked' && (
@@ -222,16 +241,11 @@ export function BuhlmannPlanner({ gas, onGasChange }: { gas: GasForm; onGasChang
         )
       })}
       <div className="sr-row">
+        <Slate title="Bühlmann/Hahn, 0–250 m n.p.m., wynurzanie 10 m/min" entries={slateEntries(outcomes, gas)} />
         <Button variant="secondary" onClick={() => setDives([...dives, EMPTY])}>
           Dodaj nurkowanie powtórne
         </Button>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setUndo(dives)
-            setDives([EMPTY])
-          }}
-        >
+        <Button variant="ghost" onClick={() => change([EMPTY])}>
           Wyczyść plan
         </Button>
       </div>
@@ -252,7 +266,7 @@ export function BuhlmannPlanner({ gas, onGasChange }: { gas: GasForm; onGasChang
       )}
       <GasSettingsCard form={gas} onChange={onGasChange} />
       <SavedPlans<DiveForm[]>
-        storageKey="sailrock.saved.buhlmann"
+        storageKey="sailrock.saved.buhlmann.v2"
         current={dives}
         canSave={outcomes.some((o) => o.status === 'ok')}
         summary={(saved) =>
@@ -261,10 +275,7 @@ export function BuhlmannPlanner({ gas, onGasChange }: { gas: GasForm; onGasChang
             .map((d) => `${d.depth} m / ${d.time} min`)
             .join(', ')
         }
-        onLoad={(saved) => {
-          setUndo(dives)
-          setDives(saved)
-        }}
+        onLoad={change}
       />
     </div>
   )
