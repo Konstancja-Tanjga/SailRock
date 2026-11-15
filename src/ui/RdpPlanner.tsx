@@ -181,8 +181,13 @@ export function RdpPlanner({
     setUndo(dives)
     setDives(next)
   }
+  // Każda dalsza edycja unieważnia „Cofnij": inaczej cofnięcie skasowałoby późniejsze zmiany.
+  const edit = (next: DiveForm[]) => {
+    setUndo(null)
+    setDives(next)
+  }
   const update = (i: number, patch: Partial<DiveForm>) =>
-    setDives(dives.map((d, k) => (k === i ? { ...d, ...patch } : d)))
+    edit(dives.map((d, k) => (k === i ? { ...d, ...patch } : d)))
   const maxDepth = table.depths[table.depths.length - 1]
 
   return (
@@ -280,7 +285,7 @@ export function RdpPlanner({
       })}
       <div className="sr-row">
         <Slate title={`RDP, ${GAS_NAMES[gas] ?? GAS_NAMES.air}`} entries={slateEntries(outcomes, gasForm)} />
-        <Button variant="secondary" onClick={() => setDives([...dives, EMPTY])}>
+        <Button variant="secondary" onClick={() => edit([...dives, EMPTY])}>
           Dodaj nurkowanie powtórzeniowe
         </Button>
         <Button variant="ghost" onClick={() => change([EMPTY])}>

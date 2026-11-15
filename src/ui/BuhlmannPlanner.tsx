@@ -160,8 +160,13 @@ export function BuhlmannPlanner({
     setUndo(dives)
     setDives(next)
   }
+  // Każda dalsza edycja unieważnia „Cofnij": inaczej cofnięcie skasowałoby późniejsze zmiany.
+  const edit = (next: DiveForm[]) => {
+    setUndo(null)
+    setDives(next)
+  }
   const update = (i: number, patch: Partial<DiveForm>) =>
-    setDives(dives.map((d, k) => (k === i ? { ...d, ...patch } : d)))
+    edit(dives.map((d, k) => (k === i ? { ...d, ...patch } : d)))
 
   return (
     <div className="sr-stack-loose">
@@ -242,7 +247,7 @@ export function BuhlmannPlanner({
       })}
       <div className="sr-row">
         <Slate title="Bühlmann/Hahn, 0–250 m n.p.m., wynurzanie 10 m/min" entries={slateEntries(outcomes, gas)} />
-        <Button variant="secondary" onClick={() => setDives([...dives, EMPTY])}>
+        <Button variant="secondary" onClick={() => edit([...dives, EMPTY])}>
           Dodaj nurkowanie powtórne
         </Button>
         <Button variant="ghost" onClick={() => change([EMPTY])}>
