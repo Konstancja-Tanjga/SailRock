@@ -24,6 +24,9 @@ planner applies and what it shows back. The implementation was done by
   longer time; never interpolates.
 - **Nitrox calculator**: maximum operating depth at 1.4 and 1.6 ata, oxygen partial pressure,
   equivalent air depth and best mix.
+- **Gas planning** for every dive: consumption from your SAC rate and cylinder, pressure left
+  at the surface, and minimum gas for an emergency ascent of two divers on one cylinder.
+- **Saved plans**, kept on the device.
 - Works offline once installed (PWA) and remembers the last plan on the device.
 
 The interface is in Polish.

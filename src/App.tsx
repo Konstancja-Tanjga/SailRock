@@ -1,11 +1,13 @@
 import { AppBar, AppShell, Card, Tab, TabList, TabPanel, Tabs } from '@bighat/ui'
 import { BuhlmannPlanner } from './ui/BuhlmannPlanner'
+import { DEFAULT_GAS_FORM } from './ui/GasSection'
 import { NitroxCalculator } from './ui/NitroxCalculator'
 import { RdpPlanner } from './ui/RdpPlanner'
 import { usePersistentState } from './ui/usePersistentState'
 
 export default function App() {
   const [tab, setTab] = usePersistentState('sailrock.tab', 'rdp')
+  const [gas, setGas] = usePersistentState('sailrock.gas', DEFAULT_GAS_FORM)
   return (
     <AppShell height="flow" header={<AppBar brand="SailRock" title="Planer nurkowań" titleAsHeading />}>
       <div className="sr-page">
@@ -22,10 +24,10 @@ export default function App() {
             <Tab id="nitrox">Nitrox</Tab>
           </TabList>
           <TabPanel id="rdp">
-            <RdpPlanner />
+            <RdpPlanner gasForm={gas} onGasChange={setGas} />
           </TabPanel>
           <TabPanel id="buhlmann">
-            <BuhlmannPlanner />
+            <BuhlmannPlanner gas={gas} onGasChange={setGas} />
           </TabPanel>
           <TabPanel id="nitrox">
             <NitroxCalculator />

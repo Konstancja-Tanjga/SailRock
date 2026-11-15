@@ -19,7 +19,10 @@ import {
   type RdpWarning,
 } from '../tables/rdp'
 import { RDP_AIR, RDP_EAN32, RDP_EAN36, RDP_SURFACE } from '../tables/rdpData'
+import { useState } from 'react'
 import { formatDecimal, parseNumber } from './format'
+import { GasResult, GasSettingsCard, type GasForm } from './GasSection'
+import { SavedPlans } from './SavedPlans'
 import { Stats } from './Stats'
 import { usePersistentState } from './usePersistentState'
 
@@ -70,7 +73,17 @@ function plan(table: RdpTable, dives: DiveForm[]): Outcome[] {
   return outcomes
 }
 
-function Result({ result: r, dive, table }: { result: RdpDiveResult; dive: RdpDive; table: RdpTable }) {
+function Result({
+  result: r,
+  dive,
+  table,
+  gas,
+}: {
+  result: RdpDiveResult
+  dive: RdpDive
+  table: RdpTable
+  gas: GasForm
+}) {
   const items: DescriptionItem[] = [
     { term: 'Głębokość w tabeli', value: `${r.tableDepth} m` },
     { term: 'Limit bezdekompresyjny', value: `${r.noDecoLimit} min` },
@@ -105,6 +118,15 @@ function Result({ result: r, dive, table }: { result: RdpDiveResult; dive: RdpDi
         {left === 0 && <Badge tone="critical">Na granicy limitu</Badge>}
       </div>
       <DescriptionList items={items} density="compact" ariaLabel="Szczegóły odczytu" />
+      <GasResult
+        form={gas}
+        profile={{
+          depth: dive.depth,
+          time: dive.time,
+          stops: dive.depth > SAFETY_STOP.depth ? [SAFETY_STOP] : [],
+          ascentRate: 10,
+        }}
+      />
       {r.warnings.length > 0 && (
         <ul className="sr-list">
           {r.warnings.map((w) => (
@@ -116,7 +138,14 @@ function Result({ result: r, dive, table }: { result: RdpDiveResult; dive: RdpDi
   )
 }
 
-export function RdpPlanner() {
+export function RdpPlanner({
+  gasForm,
+  onGasChange,
+}: {
+  gasForm: GasForm
+  onGasChange: (gas: GasForm) => void
+}) {
+  const [undo, setUndo] = useState<DiveForm[] | null>(null)
   const [gas, setGas] = usePersistentState('sailrock.rdp.gas', 'air')
   const [dives, setDives] = usePersistentState<DiveForm[]>('sailrock.rdp', [EMPTY])
   const table = TABLES[gas] ?? RDP_AIR
@@ -157,7 +186,10 @@ export function RdpPlanner() {
                     tone="critical"
                     size="sm"
                     aria-label={`Usuń nurkowanie ${i + 1}`}
-                    onClick={() => setDives(dives.filter((_, k) => k !== i))}
+                    onClick={() => {
+                      setUndo(dives)
+                      setDives(dives.filter((_, k) => k !== i))
+                    }}
                   >
                     Usuń
                   </Button>
@@ -210,7 +242,7 @@ export function RdpPlanner() {
                 onChange={(cold) => update(i, { cold })}
               />
               {outcome.status === 'ok' && (
-                <Result result={outcome.result} dive={outcome.dive} table={table} />
+                <Result result={outcome.result} dive={outcome.dive} table={table} gas={gasForm} />
               )}
               {outcome.status === 'empty' && (
                 <StateBlock
@@ -244,10 +276,49 @@ export function RdpPlanner() {
         <Button variant="secondary" onClick={() => setDives([...dives, EMPTY])}>
           Dodaj nurkowanie powtórzeniowe
         </Button>
-        <Button variant="ghost" onClick={() => setDives([EMPTY])}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setUndo(dives)
+            setDives([EMPTY])
+          }}
+        >
           Wyczyść plan
         </Button>
       </div>
+      {undo && (
+        <div className="sr-row" role="status">
+          <p className="sr-text">Plan został zmieniony.</p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setDives(undo)
+              setUndo(null)
+            }}
+          >
+            Cofnij ostatnią zmianę
+          </Button>
+        </div>
+      )}
+      <GasSettingsCard form={gasForm} onChange={onGasChange} />
+      <SavedPlans<{ gas: string; dives: DiveForm[] }>
+        storageKey="sailrock.saved.rdp"
+        current={{ gas, dives }}
+        canSave={outcomes.some((o) => o.status === 'ok')}
+        summary={(saved) =>
+          `${(TABLES[saved.gas] ?? RDP_AIR).name.replace('RDP ', '')}: ` +
+          saved.dives
+            .filter((d) => d.depth && d.time)
+            .map((d) => `${d.depth} m / ${d.time} min`)
+            .join(', ')
+        }
+        onLoad={(saved) => {
+          setUndo(dives)
+          setGas(saved.gas)
+          setDives(saved.dives)
+        }}
+      />
     </div>
   )
 }

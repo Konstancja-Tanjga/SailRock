@@ -9,7 +9,10 @@ import {
   type TableStop,
 } from '../tables/tablePlanner'
 import { formatMinutes, parseNumber } from './format'
+import { GasResult, GasSettingsCard, type GasForm } from './GasSection'
+import { SavedPlans } from './SavedPlans'
 import { Stats } from './Stats'
+import { useState } from 'react'
 import { usePersistentState } from './usePersistentState'
 
 type DiveForm = { depth: string; time: string; hours: string; minutes: string }
@@ -56,7 +59,7 @@ function penaltyText(p: RepetitivePlan): string {
   return `${p.penalty.minutes} min`
 }
 
-function Result({ plan: p }: { plan: TablePlan | RepetitivePlan }) {
+function Result({ plan: p, gas }: { plan: TablePlan | RepetitivePlan; gas: GasForm }) {
   const ascent = Math.ceil(p.depth / ASCENT_RATE) + p.decoTime
   const items: DescriptionItem[] = [
     { term: 'Odczyt z tabeli', value: `${p.tableDepth} m / ${p.tableTime} min` },
@@ -96,6 +99,10 @@ function Result({ plan: p }: { plan: TablePlan | RepetitivePlan }) {
         />
       )}
       <DescriptionList items={items} density="compact" ariaLabel="Szczegóły odczytu" />
+      <GasResult
+        form={gas}
+        profile={{ depth: p.depth, time: p.time, stops: p.stops, ascentRate: ASCENT_RATE }}
+      />
       {beyond && (
         <p className="sr-note">
           Plan wychodzi poza uprawnienia AOWD + nitrox:{' '}
@@ -109,8 +116,9 @@ function Result({ plan: p }: { plan: TablePlan | RepetitivePlan }) {
   )
 }
 
-export function BuhlmannPlanner() {
+export function BuhlmannPlanner({ gas, onGasChange }: { gas: GasForm; onGasChange: (gas: GasForm) => void }) {
   const [dives, setDives] = usePersistentState<DiveForm[]>('sailrock.buhlmann', [EMPTY])
+  const [undo, setUndo] = useState<DiveForm[] | null>(null)
   const outcomes = plan(dives)
   const update = (i: number, patch: Partial<DiveForm>) =>
     setDives(dives.map((d, k) => (k === i ? { ...d, ...patch } : d)))
@@ -135,7 +143,10 @@ export function BuhlmannPlanner() {
                     tone="critical"
                     size="sm"
                     aria-label={`Usuń nurkowanie ${i + 1}`}
-                    onClick={() => setDives(dives.filter((_, k) => k !== i))}
+                    onClick={() => {
+                      setUndo(dives)
+                      setDives(dives.filter((_, k) => k !== i))
+                    }}
                   >
                     Usuń
                   </Button>
@@ -181,7 +192,7 @@ export function BuhlmannPlanner() {
                   onChange={(e) => update(i, { time: e.target.value })}
                 />
               </div>
-              {outcome.status === 'ok' && <Result plan={outcome.plan} />}
+              {outcome.status === 'ok' && <Result plan={outcome.plan} gas={gas} />}
               {outcome.status === 'empty' && (
                 <StateBlock
                   state="empty"
@@ -214,10 +225,47 @@ export function BuhlmannPlanner() {
         <Button variant="secondary" onClick={() => setDives([...dives, EMPTY])}>
           Dodaj nurkowanie powtórne
         </Button>
-        <Button variant="ghost" onClick={() => setDives([EMPTY])}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setUndo(dives)
+            setDives([EMPTY])
+          }}
+        >
           Wyczyść plan
         </Button>
       </div>
+      {undo && (
+        <div className="sr-row" role="status">
+          <p className="sr-text">Plan został zmieniony.</p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setDives(undo)
+              setUndo(null)
+            }}
+          >
+            Cofnij ostatnią zmianę
+          </Button>
+        </div>
+      )}
+      <GasSettingsCard form={gas} onChange={onGasChange} />
+      <SavedPlans<DiveForm[]>
+        storageKey="sailrock.saved.buhlmann"
+        current={dives}
+        canSave={outcomes.some((o) => o.status === 'ok')}
+        summary={(saved) =>
+          saved
+            .filter((d) => d.depth && d.time)
+            .map((d) => `${d.depth} m / ${d.time} min`)
+            .join(', ')
+        }
+        onLoad={(saved) => {
+          setUndo(dives)
+          setDives(saved)
+        }}
+      />
     </div>
   )
 }
