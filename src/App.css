@@ -1,5 +1,18 @@
 /* Układ ekranów SailRock. Wyłącznie semantyczne tokeny @bighat/ui. */
 
+/* Bez domyślnego marginesu przeglądarki; w trybie aplikacji z ekranu początkowego
+   treść nie wchodzi pod wycięcie i pasek systemowy telefonu. */
+html,
+body {
+  margin: 0;
+  background: var(--bh-surface-sunken);
+}
+
+body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
 .sr-page {
   display: flex;
   flex-direction: column;
