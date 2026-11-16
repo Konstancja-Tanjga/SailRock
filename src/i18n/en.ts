@@ -123,7 +123,7 @@ export const en: Dictionary = {
   deco: {
     intro: (rate) =>
       `The Bühlmann/Hahn ascent table for waters at 0–250 m above sea level. Time runs from the start of the descent to the start of the ascent; the ascent rate is ${rate} m/min. The app takes the next greater depth and the next longer time in the table.`,
-    decompression: 'Decompression',
+    decompression: 'Deco time',
     none: 'none',
     ascent: 'Ascent',
     decoDive: 'Decompression dive',
