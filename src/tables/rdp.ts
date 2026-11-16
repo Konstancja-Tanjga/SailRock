@@ -4,6 +4,8 @@
  * i tekstu na kartach RDP.
  */
 
+import { PlanError } from './errors'
+
 export const GROUPS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 export type PressureGroup = string
 
@@ -30,7 +32,7 @@ export interface RdpTable {
 /** Tabela 2: dla grupy początkowej lista [nowa grupa, koniec przedziału w minutach]. */
 export type SurfaceTable = Record<PressureGroup, [group: PressureGroup, until: number][]>
 
-export class RdpError extends Error {}
+export class RdpError extends PlanError {}
 
 export const SAFETY_STOP = { depth: 5, minutes: 3 }
 /** Przystanek bezpieczeństwa jest wymagany od tej głębokości. */
@@ -42,11 +44,15 @@ export const FRESH_AFTER_MINUTES = 6 * 60
 export const COLD_EXTRA_DEPTH = 4
 
 function column(table: RdpTable, depth: number): number {
-  if (!(depth > 0)) throw new RdpError('Głębokość musi być większa od zera')
+  if (!(depth > 0)) throw new RdpError('Głębokość musi być większa od zera', { code: 'depth-nonpositive' })
   const i = table.depths.findIndex((d) => d >= depth)
   if (i < 0) {
     const max = table.depths[table.depths.length - 1]
-    throw new RdpError(`Głębokość ${depth} m jest poza zakresem tabeli ${table.name} (maks. ${max} m)`)
+    throw new RdpError(`Głębokość ${depth} m jest poza zakresem tabeli ${table.name} (maks. ${max} m)`, {
+      code: 'depth-range',
+      depth,
+      max,
+    })
   }
   return i
 }
@@ -69,14 +75,16 @@ export function noDecoLimit(table: RdpTable, depth: number): number {
 
 /** Grupa ciśnieniowa po nurkowaniu: pierwsza grupa z czasem równym lub dłuższym. */
 export function groupAfterDive(table: RdpTable, depth: number, time: number): PressureGroup {
-  if (!(time > 0)) throw new RdpError('Czas musi być większy od zera')
+  if (!(time > 0)) throw new RdpError('Czas musi być większy od zera', { code: 'time-nonpositive' })
   const c = column(table, depth)
   for (const g of GROUPS) {
     const t = table.times[g]?.[c]
     if (t != null && t >= time) return g
   }
+  const limit = noDecoLimit(table, depth)
   throw new RdpError(
-    `Czas ${time} min przekracza limit bezdekompresyjny ${noDecoLimit(table, depth)} min dla ${table.depths[c]} m`,
+    `Czas ${time} min przekracza limit bezdekompresyjny ${limit} min dla ${table.depths[c]} m`,
+    { code: 'over-limit', time, limit, tableDepth: table.depths[c] },
   )
 }
 
@@ -107,7 +115,7 @@ export function groupAfterSurface(
 ): PressureGroup | null {
   if (minutes > FRESH_AFTER_MINUTES) return null
   const row = surface[group]
-  if (!row) throw new RdpError(`Nieznana grupa ciśnieniowa ${group}`)
+  if (!row) throw new RdpError(`Nieznana grupa ciśnieniowa ${group}`, { code: 'unknown-group', group })
   for (const [next, until] of row) if (minutes <= until) return next
   return null
 }
@@ -121,7 +129,9 @@ export function minSurfaceInterval(
   const row = surface[from]
   if (to === null) return row[row.length - 1][1] + 1
   const i = row.findIndex(([g]) => g === to)
-  if (i < 0) throw new RdpError(`Z grupy ${from} nie da się przejść do grupy ${to}`)
+  if (i < 0) {
+    throw new RdpError(`Z grupy ${from} nie da się przejść do grupy ${to}`, { code: 'no-transition', from, to })
+  }
   return i === 0 ? 0 : row[i - 1][1] + 1
 }
 
@@ -206,12 +216,17 @@ export function planRdpDay(table: RdpTable, surface: SurfaceTable, dives: RdpDiv
     const ndl = noDecoLimit(table, planned)
     const rnt = before === null ? 0 : residualNitrogenTime(table, before, planned)
     if (rnt === null) {
-      throw new RdpError(`Z grupą ${before} nie można nurkować na ${depth} m`)
+      throw new RdpError(`Z grupą ${before} nie można nurkować na ${depth} m`, {
+        code: 'group-at-depth',
+        group: before ?? '',
+        tableDepth: depth,
+      })
     }
     const total = dive.time + rnt
     if (total > ndl) {
       throw new RdpError(
         `Nurkowanie ${index + 1}: ${dive.time} min + ${rnt} min azotu resztkowego przekracza limit ${ndl} min dla ${depth} m`,
+        { code: 'dive-over-limit', dive: index + 1, time: dive.time, residual: rnt, limit: ndl, tableDepth: depth },
       )
     }
     const after = groupAfterDive(table, planned, total)

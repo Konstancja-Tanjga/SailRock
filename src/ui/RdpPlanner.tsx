@@ -10,6 +10,8 @@ import {
 } from '@bighat/ui'
 import type { DescriptionItem } from '@bighat/ui'
 import { useState } from 'react'
+import { useI18n } from '../i18n/context'
+import type { Dictionary } from '../i18n/pl'
 import type { GasProfile } from '../tables/gasPlan'
 import {
   ASCENT_RATE_MAX,
@@ -18,10 +20,9 @@ import {
   type RdpDive,
   type RdpDiveResult,
   type RdpTable,
-  type RdpWarning,
 } from '../tables/rdp'
 import { RDP_AIR, RDP_EAN32, RDP_EAN36, RDP_SURFACE } from '../tables/rdpData'
-import { formatDecimal, formatMinutes, parseNumber, surfaceInterval } from './format'
+import { errorText, formatMinutes, parseNumber, surfaceInterval } from './format'
 import { turnPressure, type GasForm } from './gasForm'
 import { GasResult, GasSettingsCard } from './GasSection'
 import { IntervalFields } from './IntervalFields'
@@ -35,26 +36,14 @@ type DiveForm = { depth: string; time: string; end: string; start: string; cold:
 type Outcome =
   | { status: 'empty' }
   | { status: 'blocked' }
-  | { status: 'error'; message: string }
+  | { status: 'error'; error: unknown }
   | { status: 'ok'; result: RdpDiveResult; dive: RdpDive }
 
 const EMPTY: DiveForm = { depth: '', time: '', end: '', start: '', cold: false }
 
 const TABLES: Record<string, RdpTable> = { air: RDP_AIR, ean32: RDP_EAN32, ean36: RDP_EAN36 }
-const GAS_NAMES: Record<string, string> = { air: 'Powietrze', ean32: 'EANx32', ean36: 'EANx36' }
 
-const WARNINGS: Record<RdpWarning, string> = {
-  'deeper-than-previous': 'Nurkowanie powtórzeniowe jest głębsze niż poprzednie; planuj od najgłębszego.',
-  'repetitive-deeper-than-30': 'Nurkowania powtórzeniowe ogranicz do 30 m lub płycej.',
-  'deeper-than-40': 'Nie nurkuj głębiej niż 40 m; 42 m jest w tabeli tylko na sytuacje awaryjne.',
-  'wx-interval':
-    'Po grupie W lub X minimalna przerwa między wszystkimi kolejnymi nurkowaniami to 1 godzina.',
-  'yz-interval':
-    'Po grupie Y lub Z minimalna przerwa między wszystkimi kolejnymi nurkowaniami to 3 godziny.',
-  'continuity-only-depth':
-    'Ta głębokość jest w tabeli tylko dla ciągłości planowania: ciśnienie parcjalne tlenu przekracza 1,4 ata.',
-  'at-limit': 'Plan sięga limitu bezdekompresyjnego. Nigdy nie nurkuj do granic tabeli.',
-}
+const gasName = (gas: string, t: Dictionary) => (gas === 'ean32' ? 'EANx32' : gas === 'ean36' ? 'EANx36' : t.rdp.air)
 
 function plan(table: RdpTable, dives: DiveForm[]): Outcome[] {
   const parsed: (RdpDive | null)[] = dives.map((d, i) => {
@@ -72,7 +61,7 @@ function plan(table: RdpTable, dives: DiveForm[]): Outcome[] {
       const day = planRdpDay(table, RDP_SURFACE, parsed.slice(0, i + 1) as RdpDive[])
       outcomes.push({ status: 'ok', result: day[i], dive })
     } catch (error) {
-      outcomes.push({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+      outcomes.push({ status: 'error', error })
     }
   })
   return outcomes
@@ -97,45 +86,46 @@ function Result({
   table: RdpTable
   gas: GasForm
 }) {
+  const { t } = useI18n()
   const items: DescriptionItem[] = [
-    { term: 'Głębokość w tabeli', value: `${r.tableDepth} m` },
-    { term: 'Limit bezdekompresyjny', value: `${r.noDecoLimit} min` },
-    { term: 'Przystanek bezpieczeństwa', value: `${SAFETY_STOP.minutes} min na ${SAFETY_STOP.depth} m` },
+    { term: t.rdp.tableDepth, value: `${r.tableDepth} m` },
+    { term: t.rdp.limit, value: t.rdp.minutes(r.noDecoLimit) },
+    { term: t.rdp.safetyStop, value: t.rdp.safetyStopValue(SAFETY_STOP.minutes, SAFETY_STOP.depth) },
   ]
   if (r.groupBefore !== null) {
     items.push(
-      { term: 'Grupa po przerwie', value: r.groupBefore },
-      { term: 'Czas azotu resztkowego', value: `${r.residualNitrogenTime} min` },
-      { term: 'Zaktualizowany limit', value: `${r.adjustedNoDecoLimit} min` },
-      { term: 'Czas łączny (rzeczywisty + resztkowy)', value: `${r.totalBottomTime} min` },
+      { term: t.rdp.groupBefore, value: r.groupBefore },
+      { term: t.rdp.residual, value: t.rdp.minutes(r.residualNitrogenTime) },
+      { term: t.rdp.adjusted, value: t.rdp.minutes(r.adjustedNoDecoLimit) },
+      { term: t.rdp.total, value: t.rdp.minutes(r.totalBottomTime) },
     )
   }
   if (table.fO2 > 0.21) {
     const ppO2 = table.fO2 * (r.tableDepth / 10 + 1)
-    items.push({ term: 'Ciśnienie parcjalne tlenu', value: `${formatDecimal(ppO2, 2)} ata` })
+    items.push({ term: t.rdp.ppO2, value: `${t.number(ppO2, 2)} ata` })
   }
   const left = r.adjustedNoDecoLimit - dive.time
   return (
     <div className="sr-stack">
       <Stats
         items={[
-          { label: 'Zapas', value: `${left} min` },
-          { label: 'Maks. czas', value: `${r.adjustedNoDecoLimit} min` },
-          { label: 'Grupa', value: r.groupAfter },
+          { label: t.rdp.margin, value: t.rdp.minutes(left) },
+          { label: t.rdp.maxTime, value: t.rdp.minutes(r.adjustedNoDecoLimit) },
+          { label: t.dive.group, value: r.groupAfter },
         ]}
       />
       <div className="sr-row">
         <Badge tone={r.safetyStop ? 'warning' : 'success'}>
-          {r.safetyStop ? 'Przystanek bezpieczeństwa wymagany' : 'Przystanek bezpieczeństwa zalecany'}
+          {r.safetyStop ? t.rdp.stopRequired : t.rdp.stopRecommended}
         </Badge>
-        {left === 0 && <Badge tone="critical">Na granicy limitu</Badge>}
+        {left === 0 && <Badge tone="critical">{t.rdp.atLimit}</Badge>}
       </div>
-      <DescriptionList items={items} density="compact" ariaLabel="Szczegóły odczytu" />
+      <DescriptionList items={items} density="compact" ariaLabel={t.dive.details} />
       <GasResult form={gas} profile={gasProfile(dive)} />
       {r.warnings.length > 0 && (
         <ul className="sr-list">
           {r.warnings.map((w) => (
-            <li key={w}>{WARNINGS[w]}</li>
+            <li key={w}>{t.rdp.warnings[w]}</li>
           ))}
         </ul>
       )}
@@ -143,22 +133,19 @@ function Result({
   )
 }
 
-function slateEntries(outcomes: Outcome[], gas: GasForm): SlateEntry[] {
+function slateEntries(outcomes: Outcome[], gas: GasForm, t: Dictionary): SlateEntry[] {
   const entries: SlateEntry[] = []
   outcomes.forEach((o, i) => {
     if (o.status !== 'ok') return
     const turn = turnPressure(gasProfile(o.dive), gas)
     entries.push({
-      label:
-        i === 0
-          ? 'Nurkowanie 1'
-          : `Nurkowanie ${i + 1} · po ${formatMinutes(o.dive.surfaceInterval ?? 0)} przerwy`,
+      label: i === 0 ? t.slate.first : t.slate.next(i + 1, formatMinutes(o.dive.surfaceInterval ?? 0, t)),
       headline: `${o.dive.depth} m · ${o.dive.time} min`,
       lines: [
-        `Maks. ${o.result.adjustedNoDecoLimit} min`,
-        `Przystanek ${SAFETY_STOP.minutes}′ na ${SAFETY_STOP.depth} m${o.result.safetyStop ? ' (wymagany)' : ''}`,
-        `Grupa ${o.result.groupAfter}`,
-        ...(turn === null ? [] : [`Wynurzenie od ${turn} bar`]),
+        t.rdp.slateMax(o.result.adjustedNoDecoLimit),
+        t.rdp.slateStop(SAFETY_STOP.minutes, SAFETY_STOP.depth, o.result.safetyStop),
+        t.slate.group(o.result.groupAfter),
+        ...(turn === null ? [] : [t.slate.turn(turn)]),
       ],
     })
   })
@@ -172,6 +159,7 @@ export function RdpPlanner({
   gasForm: GasForm
   onGasChange: (gas: GasForm) => void
 }) {
+  const { t } = useI18n()
   const [undo, setUndo] = useState<DiveForm[] | null>(null)
   const [gas, setGas] = usePersistentState('sailrock.rdp.gas', 'air')
   const [dives, setDives] = usePersistentState<DiveForm[]>('sailrock.rdp.v2', [EMPTY])
@@ -192,35 +180,31 @@ export function RdpPlanner({
 
   return (
     <div className="sr-stack-loose">
-      <p className="sr-text">
-        Planer nurkowania rekreacyjnego (RDP) tylko dla nurkowań bezdekompresyjnych. Wynurzaj się
-        nie szybciej niż {ASCENT_RATE_MAX} m/min. Każde nurkowanie powtórzeniowe planuj płycej niż
-        poprzednie.
-      </p>
+      <p className="sr-text">{t.rdp.intro(ASCENT_RATE_MAX)}</p>
       <SegmentedControl
-        legend="Gaz"
+        legend={t.rdp.gas}
         showLegend
         fullWidth
         value={gas}
         onChange={setGas}
-        options={Object.entries(GAS_NAMES).map(([value, label]) => ({ value, label }))}
+        options={Object.keys(TABLES).map((value) => ({ value, label: gasName(value, t) }))}
       />
       {dives.map((dive, i) => {
         const outcome = outcomes[i]
         return (
-          <Card key={i} ariaLabel={`Nurkowanie ${i + 1}`}>
+          <Card key={i} ariaLabel={t.dive.heading(i + 1)}>
             <div className="sr-stack">
               <div className="sr-row-spread">
-                <h2 className="sr-heading">Nurkowanie {i + 1}</h2>
+                <h2 className="sr-heading">{t.dive.heading(i + 1)}</h2>
                 {dives.length > 1 && (
                   <Button
                     variant="ghost"
                     tone="critical"
                     size="sm"
-                    aria-label={`Usuń nurkowanie ${i + 1}`}
+                    aria-label={t.dive.removeLabel(i + 1)}
                     onClick={() => change(dives.filter((_, k) => k !== i))}
                   >
-                    Usuń
+                    {t.dive.remove}
                   </Button>
                 )}
               </div>
@@ -229,7 +213,7 @@ export function RdpPlanner({
               )}
               <div className="sr-fields">
                 <Input
-                  label="Głębokość (m)"
+                  label={t.dive.depth}
                   type="number"
                   inputMode="decimal"
                   min={1}
@@ -238,7 +222,7 @@ export function RdpPlanner({
                   onChange={(e) => update(i, { depth: e.target.value })}
                 />
                 <Input
-                  label="Czas denny (min)"
+                  label={t.dive.time}
                   type="number"
                   inputMode="numeric"
                   min={1}
@@ -247,8 +231,8 @@ export function RdpPlanner({
                 />
               </div>
               <Switch
-                label="Zimna woda lub trudne warunki"
-                description="Plan liczony jak dla głębokości o 4 m większej."
+                label={t.rdp.cold}
+                description={t.rdp.coldHint}
                 checked={dive.cold}
                 onChange={(cold) => update(i, { cold })}
               />
@@ -259,24 +243,19 @@ export function RdpPlanner({
                 <StateBlock
                   state="empty"
                   scope="inline"
-                  title={i > 0 ? 'Podaj godziny, głębokość i czas' : 'Podaj głębokość i czas'}
-                  description="Wynik pojawi się od razu po wpisaniu wszystkich wartości."
+                  title={i > 0 ? t.dive.emptyNext : t.dive.emptyFirst}
+                  description={t.dive.emptyHint}
                 />
               )}
               {outcome.status === 'blocked' && (
-                <StateBlock
-                  state="empty"
-                  scope="inline"
-                  title="Najpierw popraw poprzednie nurkowanie"
-                  description="Nurkowanie powtórzeniowe liczy się od grupy ciśnieniowej poprzedniego."
-                />
+                <StateBlock state="empty" scope="inline" title={t.dive.blocked} description={t.rdp.blockedHint} />
               )}
               {outcome.status === 'error' && (
                 <StateBlock
                   state="error"
                   scope="inline"
-                  title="Plan wychodzi poza tabelę RDP"
-                  description={`${outcome.message}. RDP nie służy do planowania nurkowań dekompresyjnych: skróć czas, zmniejsz głębokość albo wydłuż przerwę.`}
+                  title={t.rdp.errorTitle}
+                  description={`${errorText(outcome.error, t)}. ${t.rdp.errorHint}`}
                 />
               )}
             </div>
@@ -284,17 +263,17 @@ export function RdpPlanner({
         )
       })}
       <div className="sr-row">
-        <Slate title={`RDP, ${GAS_NAMES[gas] ?? GAS_NAMES.air}`} entries={slateEntries(outcomes, gasForm)} />
+        <Slate title={t.rdp.slateTitle(gasName(gas, t))} entries={slateEntries(outcomes, gasForm, t)} />
         <Button variant="secondary" onClick={() => edit([...dives, EMPTY])}>
-          Dodaj nurkowanie powtórzeniowe
+          {t.rdp.add}
         </Button>
         <Button variant="ghost" onClick={() => change([EMPTY])}>
-          Wyczyść plan
+          {t.dive.clear}
         </Button>
       </div>
       {undo && (
         <div className="sr-row" role="status">
-          <p className="sr-text">Plan został zmieniony.</p>
+          <p className="sr-text">{t.dive.changed}</p>
           <Button
             variant="ghost"
             size="sm"
@@ -303,7 +282,7 @@ export function RdpPlanner({
               setUndo(null)
             }}
           >
-            Cofnij ostatnią zmianę
+            {t.dive.undo}
           </Button>
         </div>
       )}
@@ -313,7 +292,7 @@ export function RdpPlanner({
         current={{ gas, dives }}
         canSave={outcomes.some((o) => o.status === 'ok')}
         summary={(saved) =>
-          `${GAS_NAMES[saved.gas] ?? GAS_NAMES.air}: ` +
+          `${gasName(saved.gas, t)}: ` +
           saved.dives
             .filter((d) => d.depth && d.time)
             .map((d) => `${d.depth} m / ${d.time} min`)

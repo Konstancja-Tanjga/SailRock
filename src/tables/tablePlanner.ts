@@ -1,3 +1,4 @@
+import { PlanError } from './errors'
 import {
   STOP_STEP,
   SURFACE_INTERVALS,
@@ -27,27 +28,35 @@ export interface TablePlan {
   group: Group
 }
 
-export class OutOfTableError extends Error {}
+export class OutOfTableError extends PlanError {}
 
 /** Wiersze tabeli dla głębokości: dokładna albo pierwsza większa. Zakazana interpolacja. */
 export function depthTable(depth: number): DepthTable {
-  if (!(depth > 0)) throw new OutOfTableError('Głębokość musi być większa od zera')
+  if (!(depth > 0)) {
+    throw new OutOfTableError('Głębokość musi być większa od zera', { code: 'depth-nonpositive' })
+  }
   const found = TABLE.find((t) => t.depth >= depth)
   if (!found) {
-    throw new OutOfTableError(`Głębokość ${depth} m jest poza zakresem tabeli (maks. 63 m)`)
+    const max = TABLE[TABLE.length - 1].depth
+    throw new OutOfTableError(`Głębokość ${depth} m jest poza zakresem tabeli (maks. ${max} m)`, {
+      code: 'depth-range',
+      depth,
+      max,
+    })
   }
   return found
 }
 
 /** Odczyt z tabeli: przystanki i grupa powtórzeń dla głębokości i czasu dennego. */
 export function lookup(depth: number, time: number): TablePlan {
-  if (!(time > 0)) throw new OutOfTableError('Czas musi być większy od zera')
+  if (!(time > 0)) throw new OutOfTableError('Czas musi być większy od zera', { code: 'time-nonpositive' })
   const table = depthTable(depth)
   const row = table.rows.find((r) => r[0] >= time)
   if (!row) {
     const max = table.rows[table.rows.length - 1][0]
     throw new OutOfTableError(
       `Czas ${time} min jest poza zakresem tabeli dla ${table.depth} m (maks. ${max} min)`,
+      { code: 'time-range', time, tableDepth: table.depth, max },
     )
   }
   const [tableTime, group, ...minutes] = row
@@ -115,6 +124,7 @@ export function lookupRepetitive(
     if (error instanceof OutOfTableError && penalty.minutes > 0) {
       throw new OutOfTableError(
         `${time} min + ${penalty.minutes} min zwiększenia czasu podstawowego = ${time + penalty.minutes} min. ${error.message}`,
+        { code: 'penalty', time, penalty: penalty.minutes, inner: error.info },
       )
     }
     throw error

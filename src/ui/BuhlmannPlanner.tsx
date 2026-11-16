@@ -1,6 +1,8 @@
 import { Badge, Button, Card, DescriptionList, Input, StateBlock, Table } from '@bighat/ui'
 import type { DescriptionItem } from '@bighat/ui'
 import { useState } from 'react'
+import { useI18n } from '../i18n/context'
+import type { Dictionary } from '../i18n/pl'
 import { ASCENT_RATE } from '../tables/buhlmannHahn0_250'
 import type { GasProfile } from '../tables/gasPlan'
 import {
@@ -10,7 +12,7 @@ import {
   type TablePlan,
   type TableStop,
 } from '../tables/tablePlanner'
-import { formatMinutes, parseNumber, surfaceInterval } from './format'
+import { errorText, formatMinutes, parseNumber, surfaceInterval } from './format'
 import { turnPressure, type GasForm } from './gasForm'
 import { GasResult, GasSettingsCard } from './GasSection'
 import { IntervalFields } from './IntervalFields'
@@ -24,7 +26,7 @@ type DiveForm = { depth: string; time: string; end: string; start: string }
 type Outcome =
   | { status: 'empty' }
   | { status: 'blocked' }
-  | { status: 'error'; message: string }
+  | { status: 'error'; error: unknown }
   | { status: 'ok'; plan: TablePlan | RepetitivePlan; interval: number }
 
 const EMPTY: DiveForm = { depth: '', time: '', end: '', start: '' }
@@ -51,7 +53,7 @@ function plan(dives: DiveForm[]): Outcome[] {
         plan: previous ? lookupRepetitive(previous.plan, interval, depth, time) : lookup(depth, time),
       })
     } catch (error) {
-      outcomes.push({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+      outcomes.push({ status: 'error', error })
     }
   })
   return outcomes
@@ -64,45 +66,46 @@ const gasProfile = (p: TablePlan): GasProfile => ({
   ascentRate: ASCENT_RATE,
 })
 
-function penaltyText(p: RepetitivePlan): string {
-  if (p.penalty.kind === 'first') return '0 min — przerwa na tyle długa, że to nurkowanie liczy się jako pierwsze'
-  if (p.penalty.kind === 'previous')
-    return `${p.penalty.minutes} min — przerwa krótsza niż najmniejsza w tabeli, dodany czas poprzedniego nurkowania`
-  return `${p.penalty.minutes} min`
+function penaltyText(p: RepetitivePlan, t: Dictionary): string {
+  if (p.penalty.kind === 'first') return t.deco.penaltyFirst
+  if (p.penalty.kind === 'previous') return t.deco.penaltyPrevious(p.penalty.minutes)
+  return t.rdp.minutes(p.penalty.minutes)
 }
 
 function Result({ plan: p, gas }: { plan: TablePlan | RepetitivePlan; gas: GasForm }) {
+  const { t } = useI18n()
   const ascent = Math.ceil(p.depth / ASCENT_RATE) + p.decoTime
   const items: DescriptionItem[] = [
-    { term: 'Odczyt z tabeli', value: `${p.tableDepth} m / ${p.tableTime} min` },
-    { term: 'Czas bezdekompresyjny', value: `${p.noStop} min` },
+    { term: t.deco.row, value: t.deco.rowValue(p.tableDepth, p.tableTime) },
+    { term: t.deco.noStop, value: t.rdp.minutes(p.noStop) },
   ]
   if ('penalty' in p) {
-    items.push({ term: 'Zwiększenie czasu podstawowego', value: penaltyText(p), wide: true })
+    items.push({ term: t.deco.penalty, value: penaltyText(p, t), wide: true })
   }
-  items.push({ term: 'Wynurzenie', value: `${ASCENT_RATE} m/min + przystanki` })
-  const beyond = p.tableDepth > 30 || p.decoTime > 0
+  items.push({ term: t.deco.ascent, value: t.deco.ascentValue(ASCENT_RATE) })
+  const deep = p.tableDepth > 30
+  const beyond = deep || p.decoTime > 0
   return (
     <div className="sr-stack">
       <Stats
         items={[
-          { label: 'Dekompresja', value: p.decoTime > 0 ? `${p.decoTime} min` : 'brak' },
-          { label: 'Wynurzenie', value: formatMinutes(ascent) },
-          { label: 'Grupa', value: p.group },
+          { label: t.deco.decompression, value: p.decoTime > 0 ? t.rdp.minutes(p.decoTime) : t.deco.none },
+          { label: t.deco.ascent, value: formatMinutes(ascent, t) },
+          { label: t.dive.group, value: p.group },
         ]}
       />
       <div className="sr-row">
         <Badge tone={p.decoTime > 0 ? 'warning' : 'success'}>
-          {p.decoTime > 0 ? 'Nurkowanie dekompresyjne' : 'Bez przystanków dekompresyjnych'}
+          {p.decoTime > 0 ? t.deco.decoDive : t.deco.noStops}
         </Badge>
-        {beyond && <Badge tone="warning">Poza uprawnieniami AOWD + nitrox</Badge>}
+        {beyond && <Badge tone="warning">{t.deco.beyond}</Badge>}
       </div>
       {p.stops.length > 0 && (
         <Table<TableStop>
-          caption="Przystanki dekompresyjne"
+          caption={t.deco.stops}
           columns={[
-            { key: 'depth', header: 'Głębokość', cell: (s) => `${s.depth} m` },
-            { key: 'minutes', header: 'Czas', cell: (s) => `${s.minutes} min`, numeric: true },
+            { key: 'depth', header: t.deco.stopDepth, cell: (s) => `${s.depth} m` },
+            { key: 'minutes', header: t.deco.stopTime, cell: (s) => t.rdp.minutes(s.minutes), numeric: true },
           ]}
           rows={p.stops}
           rowKey={(s) => String(s.depth)}
@@ -110,36 +113,26 @@ function Result({ plan: p, gas }: { plan: TablePlan | RepetitivePlan; gas: GasFo
           responsive="scroll"
         />
       )}
-      <DescriptionList items={items} density="compact" ariaLabel="Szczegóły odczytu" />
+      <DescriptionList items={items} density="compact" ariaLabel={t.dive.details} />
       <GasResult form={gas} profile={gasProfile(p)} />
-      {beyond && (
-        <p className="sr-note">
-          Plan wychodzi poza uprawnienia AOWD + nitrox:{' '}
-          {[p.tableDepth > 30 && 'głębokość ponad 30 m', p.decoTime > 0 && 'obowiązkowa dekompresja']
-            .filter(Boolean)
-            .join(' i ')}
-          .
-        </p>
-      )}
+      {beyond && <p className="sr-note">{t.deco.beyondNote(deep, p.decoTime > 0)}</p>}
     </div>
   )
 }
 
-function slateEntries(outcomes: Outcome[], gas: GasForm): SlateEntry[] {
+function slateEntries(outcomes: Outcome[], gas: GasForm, t: Dictionary): SlateEntry[] {
   const entries: SlateEntry[] = []
   outcomes.forEach((o, i) => {
     if (o.status !== 'ok') return
     const p = o.plan
     const turn = turnPressure(gasProfile(p), gas)
     entries.push({
-      label: i === 0 ? 'Nurkowanie 1' : `Nurkowanie ${i + 1} · po ${formatMinutes(o.interval)} przerwy`,
+      label: i === 0 ? t.slate.first : t.slate.next(i + 1, formatMinutes(o.interval, t)),
       headline: `${p.depth} m · ${p.time} min`,
       lines: [
-        p.stops.length > 0
-          ? p.stops.map((s) => `${s.depth} m ${s.minutes}′`).join(' · ')
-          : 'Bez przystanków deko',
-        `Grupa ${p.group}`,
-        ...(turn === null ? [] : [`Wynurzenie od ${turn} bar`]),
+        p.stops.length > 0 ? p.stops.map((s) => `${s.depth} m ${s.minutes}′`).join(' · ') : t.deco.slateNoStops,
+        t.slate.group(p.group),
+        ...(turn === null ? [] : [t.slate.turn(turn)]),
       ],
     })
   })
@@ -153,6 +146,7 @@ export function BuhlmannPlanner({
   gas: GasForm
   onGasChange: (gas: GasForm) => void
 }) {
+  const { t } = useI18n()
   const [dives, setDives] = usePersistentState<DiveForm[]>('sailrock.buhlmann.v2', [EMPTY])
   const [undo, setUndo] = useState<DiveForm[] | null>(null)
   const outcomes = plan(dives)
@@ -170,27 +164,23 @@ export function BuhlmannPlanner({
 
   return (
     <div className="sr-stack-loose">
-      <p className="sr-text">
-        Tabela wynurzania Bühlmann/Hahn dla akwenów 0–250 m n.p.m. Czas liczony od zanurzenia do
-        rozpoczęcia wynurzania, prędkość wynurzania {ASCENT_RATE} m/min. Aplikacja bierze pierwszą
-        większą głębokość i pierwszy dłuższy czas z tabeli.
-      </p>
+      <p className="sr-text">{t.deco.intro(ASCENT_RATE)}</p>
       {dives.map((dive, i) => {
         const outcome = outcomes[i]
         return (
-          <Card key={i} ariaLabel={`Nurkowanie ${i + 1}`}>
+          <Card key={i} ariaLabel={t.dive.heading(i + 1)}>
             <div className="sr-stack">
               <div className="sr-row-spread">
-                <h2 className="sr-heading">Nurkowanie {i + 1}</h2>
+                <h2 className="sr-heading">{t.dive.heading(i + 1)}</h2>
                 {dives.length > 1 && (
                   <Button
                     variant="ghost"
                     tone="critical"
                     size="sm"
-                    aria-label={`Usuń nurkowanie ${i + 1}`}
+                    aria-label={t.dive.removeLabel(i + 1)}
                     onClick={() => change(dives.filter((_, k) => k !== i))}
                   >
-                    Usuń
+                    {t.dive.remove}
                   </Button>
                 )}
               </div>
@@ -199,7 +189,7 @@ export function BuhlmannPlanner({
               )}
               <div className="sr-fields">
                 <Input
-                  label="Głębokość (m)"
+                  label={t.dive.depth}
                   type="number"
                   inputMode="decimal"
                   min={1}
@@ -208,7 +198,7 @@ export function BuhlmannPlanner({
                   onChange={(e) => update(i, { depth: e.target.value })}
                 />
                 <Input
-                  label="Czas denny (min)"
+                  label={t.dive.time}
                   type="number"
                   inputMode="numeric"
                   min={1}
@@ -221,24 +211,19 @@ export function BuhlmannPlanner({
                 <StateBlock
                   state="empty"
                   scope="inline"
-                  title={i > 0 ? 'Podaj godziny, głębokość i czas' : 'Podaj głębokość i czas'}
-                  description="Wynik pojawi się od razu po wpisaniu wszystkich wartości."
+                  title={i > 0 ? t.dive.emptyNext : t.dive.emptyFirst}
+                  description={t.dive.emptyHint}
                 />
               )}
               {outcome.status === 'blocked' && (
-                <StateBlock
-                  state="empty"
-                  scope="inline"
-                  title="Najpierw popraw poprzednie nurkowanie"
-                  description="Nurkowanie powtórne liczy się od grupy powtórzeń poprzedniego."
-                />
+                <StateBlock state="empty" scope="inline" title={t.dive.blocked} description={t.deco.blockedHint} />
               )}
               {outcome.status === 'error' && (
                 <StateBlock
                   state="error"
                   scope="inline"
-                  title="Tego nurkowania nie ma w tabeli"
-                  description={`${outcome.message}. Tabeli nie wolno interpolować ani przedłużać: skróć czas albo zmniejsz głębokość.`}
+                  title={t.deco.errorTitle}
+                  description={`${errorText(outcome.error, t)}. ${t.deco.errorHint}`}
                 />
               )}
             </div>
@@ -246,17 +231,17 @@ export function BuhlmannPlanner({
         )
       })}
       <div className="sr-row">
-        <Slate title="Bühlmann/Hahn, 0–250 m n.p.m., wynurzanie 10 m/min" entries={slateEntries(outcomes, gas)} />
+        <Slate title={t.deco.slateTitle} entries={slateEntries(outcomes, gas, t)} />
         <Button variant="secondary" onClick={() => edit([...dives, EMPTY])}>
-          Dodaj nurkowanie powtórne
+          {t.deco.add}
         </Button>
         <Button variant="ghost" onClick={() => change([EMPTY])}>
-          Wyczyść plan
+          {t.dive.clear}
         </Button>
       </div>
       {undo && (
         <div className="sr-row" role="status">
-          <p className="sr-text">Plan został zmieniony.</p>
+          <p className="sr-text">{t.dive.changed}</p>
           <Button
             variant="ghost"
             size="sm"
@@ -265,7 +250,7 @@ export function BuhlmannPlanner({
               setUndo(null)
             }}
           >
-            Cofnij ostatnią zmianę
+            {t.dive.undo}
           </Button>
         </div>
       )}

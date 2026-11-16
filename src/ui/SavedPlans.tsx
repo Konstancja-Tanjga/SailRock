@@ -1,5 +1,6 @@
 import { Button, Card, Input, List, ListItem, StateBlock } from '@bighat/ui'
 import { useState } from 'react'
+import { useI18n } from '../i18n/context'
 import { usePersistentState } from './usePersistentState'
 
 interface SavedPlan<T> {
@@ -26,14 +27,15 @@ export function SavedPlans<T>({
   summary: (data: T) => string
   onLoad: (data: T) => void
 }) {
+  const { t } = useI18n()
   const [plans, setPlans] = usePersistentState<SavedPlan<T>[]>(storageKey, [])
   const [name, setName] = useState('')
-  const [error, setError] = useState<string | undefined>()
+  const [problem, setProblem] = useState<'name' | 'plan' | null>(null)
 
   const save = () => {
     const trimmed = name.trim()
-    if (!trimmed) return setError('Podaj nazwę planu')
-    if (!canSave) return setError('Najpierw wpisz głębokość i czas')
+    if (!trimmed) return setProblem('name')
+    if (!canSave) return setProblem('plan')
     const plan: SavedPlan<T> = {
       id: `${Date.now()}`,
       name: trimmed,
@@ -42,60 +44,55 @@ export function SavedPlans<T>({
     }
     setPlans([plan, ...plans.filter((p) => p.name !== trimmed)])
     setName('')
-    setError(undefined)
+    setProblem(null)
   }
 
   return (
-    <Card ariaLabel="Zapisane plany">
+    <Card ariaLabel={t.saved.title}>
       <div className="sr-stack">
-        <h2 className="sr-heading">Zapisane plany</h2>
+        <h2 className="sr-heading">{t.saved.title}</h2>
         <Input
-          label="Nazwa planu"
+          label={t.saved.name}
           value={name}
-          error={error}
+          error={problem === 'name' ? t.saved.needName : problem === 'plan' ? t.saved.needPlan : undefined}
           onChange={(e) => {
             setName(e.target.value)
-            setError(undefined)
+            setProblem(null)
           }}
-          description="Plan o tej samej nazwie zostanie zastąpiony."
+          description={t.saved.nameHint}
         />
         <div className="sr-row">
           <Button variant="secondary" onClick={save}>
-            Zapisz bieżący plan
+            {t.saved.save}
           </Button>
         </div>
         {plans.length === 0 ? (
-          <StateBlock
-            state="empty"
-            scope="inline"
-            title="Brak zapisanych planów"
-            description="Zapisane plany zostają na tym urządzeniu i działają bez internetu."
-          />
+          <StateBlock state="empty" scope="inline" title={t.saved.emptyTitle} description={t.saved.emptyHint} />
         ) : (
-          <List ariaLabel="Zapisane plany" dividers>
+          <List ariaLabel={t.saved.title} dividers>
             {plans.map((plan) => (
               <ListItem
                 key={plan.id}
                 title={plan.name}
-                description={`${summary(plan.data)} · zapisano ${new Date(plan.savedAt).toLocaleDateString('pl-PL')}`}
+                description={t.saved.item(summary(plan.data), new Date(plan.savedAt).toLocaleDateString(t.locale))}
                 trailing={
                   <div className="sr-row">
                     <Button
                       size="sm"
                       variant="secondary"
-                      aria-label={`Wczytaj plan ${plan.name}`}
+                      aria-label={t.saved.loadLabel(plan.name)}
                       onClick={() => onLoad(plan.data)}
                     >
-                      Wczytaj
+                      {t.saved.load}
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
                       tone="critical"
-                      aria-label={`Usuń plan ${plan.name}`}
+                      aria-label={t.saved.removeLabel(plan.name)}
                       onClick={() => setPlans(plans.filter((p) => p.id !== plan.id))}
                     >
-                      Usuń
+                      {t.saved.remove}
                     </Button>
                   </div>
                 }

@@ -1,33 +1,23 @@
 import { Badge, Card, Input } from '@bighat/ui'
-import {
-  gasSettingsError,
-  planGas,
-  type GasProfile,
-  type GasSettings,
-  type GasWarning,
-} from '../tables/gasPlan'
+import { useI18n } from '../i18n/context'
+import { gasSettingsError, planGas, type GasProfile, type GasSettings, type GasWarning } from '../tables/gasPlan'
 import { parseGas, type GasForm } from './gasForm'
 import { Stats } from './Stats'
 
-const FIELDS: { key: keyof GasSettings; label: string }[] = [
-  { key: 'volume', label: 'Butla (l)' },
-  { key: 'pressure', label: 'Ciśnienie (bar)' },
-  { key: 'sac', label: 'Zużycie SAC (l/min)' },
-  { key: 'stressSac', label: 'Zużycie awaryjne (l/min)' },
-  { key: 'reserve', label: 'Rezerwa (bar)' },
-]
+const FIELDS: (keyof GasSettings)[] = ['volume', 'pressure', 'sac', 'stressSac', 'reserve']
 
 export function GasSettingsCard({ form, onChange }: { form: GasForm; onChange: (form: GasForm) => void }) {
-  const error = gasSettingsError(parseGas(form))
+  const { t } = useI18n()
+  const problem = gasSettingsError(parseGas(form))
   return (
-    <Card ariaLabel="Butla i zużycie gazu">
+    <Card ariaLabel={t.gas.title}>
       <div className="sr-stack">
-        <h2 className="sr-heading">Butla i zużycie gazu</h2>
+        <h2 className="sr-heading">{t.gas.title}</h2>
         <div className="sr-fields">
-          {FIELDS.map(({ key, label }) => (
+          {FIELDS.map((key) => (
             <Input
               key={key}
-              label={label}
+              label={t.gas.fields[key]}
               type="number"
               inputMode="decimal"
               min={0}
@@ -36,26 +26,21 @@ export function GasSettingsCard({ form, onChange }: { form: GasForm; onChange: (
             />
           ))}
         </div>
-        <p className="sr-note">
-          {error
-            ? `${error}, żeby zobaczyć zużycie gazu przy nurkowaniach.`
-            : 'Każde nurkowanie liczone jest z pełnej butli. Cały czas denny liczony na największej głębokości, wynurzanie 10 m/min.'}
-        </p>
+        <p className="sr-note">{problem ? t.gas.problems[problem] : t.gas.note}</p>
       </div>
     </Card>
   )
 }
 
-const WARNINGS: Record<GasWarning, { tone: 'critical' | 'warning'; text: string }> = {
-  insufficient: { tone: 'critical', text: 'Za mało gazu na to nurkowanie' },
-  'below-reserve': { tone: 'warning', text: 'Wynurzenie poniżej rezerwy' },
-  'below-minimum-gas': { tone: 'warning', text: 'Na dnie mniej niż minimum gas' },
+const TONES: Record<GasWarning, 'critical' | 'warning'> = {
+  insufficient: 'critical',
+  'below-reserve': 'warning',
+  'below-minimum-gas': 'warning',
 }
-
-const bar = (value: number) => `${Math.round(value)} bar`
 
 /** Zużycie gazu dla jednego nurkowania; nic nie pokazuje, gdy ustawienia są niepełne. */
 export function GasResult({ profile, form }: { profile: GasProfile; form: GasForm }) {
+  const { t } = useI18n()
   const gas = parseGas(form)
   if (gasSettingsError(gas)) return null
   const plan = planGas(profile, gas)
@@ -63,26 +48,23 @@ export function GasResult({ profile, form }: { profile: GasProfile; form: GasFor
     <div className="sr-stack">
       <Stats
         items={[
-          { label: 'Zużycie (bar)', value: String(Math.round(plan.usedBar)) },
-          { label: 'Zostanie (bar)', value: String(Math.round(plan.remainingBar)) },
-          { label: 'Min. gas (bar)', value: String(Math.round(plan.minGasBar)) },
+          { label: t.gas.used, value: String(Math.round(plan.usedBar)) },
+          { label: t.gas.left, value: String(Math.round(plan.remainingBar)) },
+          { label: t.gas.minimum, value: String(Math.round(plan.minGasBar)) },
         ]}
       />
       <div className="sr-row">
         {plan.warnings.length === 0 ? (
-          <Badge tone="success">Gazu wystarczy z rezerwą</Badge>
+          <Badge tone="success">{t.gas.enough}</Badge>
         ) : (
           plan.warnings.map((w) => (
-            <Badge key={w} tone={WARNINGS[w].tone}>
-              {WARNINGS[w].text}
+            <Badge key={w} tone={TONES[w]}>
+              {t.gas.warnings[w]}
             </Badge>
           ))
         )}
       </div>
-      <p className="sr-note">
-        Minimum gas to ciśnienie potrzebne na awaryjne wynurzenie dwóch nurków z jednej butli.
-        Wynurzanie zacznij najpóźniej przy {bar(Math.max(plan.minGasBar, gas.reserve))}.
-      </p>
+      <p className="sr-note">{t.gas.explain(Math.round(Math.max(plan.minGasBar, gas.reserve)))}</p>
     </div>
   )
 }

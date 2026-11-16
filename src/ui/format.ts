@@ -1,3 +1,5 @@
+import type { Dictionary } from '../i18n/pl'
+
 /** Liczba z pola tekstowego; NaN dla pustego lub błędnego wpisu. */
 export function parseNumber(text: string): number {
   if (text.trim() === '') return NaN
@@ -5,15 +7,9 @@ export function parseNumber(text: string): number {
 }
 
 /** Minuty jako „1 h 10 min" albo „45 min". */
-export function formatMinutes(minutes: number): string {
+export function formatMinutes(minutes: number, t: Dictionary): string {
   const h = Math.floor(minutes / 60)
-  const m = Math.round(minutes - h * 60)
-  if (h === 0) return `${m} min`
-  return m === 0 ? `${h} h` : `${h} h ${m} min`
-}
-
-export function formatDecimal(value: number, digits = 1): string {
-  return value.toFixed(digits).replace('.', ',')
+  return t.duration(h, Math.round(minutes - h * 60))
 }
 
 /** Minuty od północy dla wpisu „GG:MM"; NaN dla pustego lub błędnego. */
@@ -30,4 +26,12 @@ function clockMinutes(text: string | undefined): number {
 export function surfaceInterval(end: string | undefined, start: string | undefined): number {
   const diff = clockMinutes(start) - clockMinutes(end)
   return diff < 0 ? diff + 24 * 60 : diff
+}
+
+/** Tekst błędu planera w języku interfejsu. */
+export function errorText(error: unknown, t: Dictionary): string {
+  if (error && typeof error === 'object' && 'info' in error) {
+    return t.planError((error as { info: Parameters<Dictionary['planError']>[0] }).info)
+  }
+  return error instanceof Error ? error.message : String(error)
 }

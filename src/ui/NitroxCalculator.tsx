@@ -1,5 +1,6 @@
 import { Badge, Card, DescriptionList, Input, StateBlock } from '@bighat/ui'
-import { formatDecimal, parseNumber } from './format'
+import { useI18n } from '../i18n/context'
+import { parseNumber } from './format'
 import { usePersistentState } from './usePersistentState'
 
 /** Jak na kartach RDP: 10 m wody = 1 ata, na powierzchni 1 ata. */
@@ -10,6 +11,7 @@ const bestMix = (depth: number, ppO2: number) =>
   Math.max(21, Math.min(100, Math.floor((ppO2 / ata(depth)) * 100 + 1e-9)))
 
 export function NitroxCalculator() {
+  const { t } = useI18n()
   const [form, setForm] = usePersistentState('sailrock.nitrox', { oxygen: '32', depth: '' })
   const percent = parseNumber(form.oxygen)
   const depth = parseNumber(form.depth)
@@ -19,27 +21,22 @@ export function NitroxCalculator() {
 
   return (
     <div className="sr-stack-loose">
-      <p className="sr-text">
-        Obliczenia dla nitroksu przy założeniu 10 m wody = 1 ata. Limit roboczy ciśnienia
-        parcjalnego tlenu to 1,4 ata, limit awaryjny 1,6 ata.
-      </p>
-      <Card ariaLabel="Kalkulator nitroksu">
+      <p className="sr-text">{t.nitrox.intro}</p>
+      <Card ariaLabel={t.nitrox.card}>
         <div className="sr-stack">
           <div className="sr-fields">
             <Input
-              label="Tlen w mieszance (%)"
+              label={t.nitrox.oxygen}
               type="number"
               inputMode="numeric"
               min={21}
               max={100}
               value={form.oxygen}
               onChange={(e) => setForm({ ...form, oxygen: e.target.value })}
-              error={
-                form.oxygen !== '' && !validMix ? 'Podaj wartość od 21 do 100%' : undefined
-              }
+              error={form.oxygen !== '' && !validMix ? t.nitrox.oxygenError : undefined}
             />
             <Input
-              label="Planowana głębokość (m)"
+              label={t.nitrox.depth}
               type="number"
               inputMode="decimal"
               min={1}
@@ -47,51 +44,34 @@ export function NitroxCalculator() {
               onChange={(e) => setForm({ ...form, depth: e.target.value })}
             />
           </div>
-          <p className="sr-note">
-            Głębokość jest opcjonalna: służy do policzenia ciśnienia parcjalnego tlenu i EAD.
-          </p>
+          <p className="sr-note">{t.nitrox.depthNote}</p>
           {validMix ? (
             <div className="sr-stack">
               {Number.isFinite(ppO2) && (
                 <div className="sr-row">
                   <Badge tone={ppO2 > 1.6 ? 'critical' : ppO2 > 1.4 ? 'warning' : 'success'}>
-                    {ppO2 > 1.6
-                      ? 'Ponad limit awaryjny 1,6 ata'
-                      : ppO2 > 1.4
-                        ? 'Ponad limit roboczy 1,4 ata'
-                        : 'W limicie 1,4 ata'}
+                    {ppO2 > 1.6 ? t.nitrox.over16 : ppO2 > 1.4 ? t.nitrox.over14 : t.nitrox.within}
                   </Badge>
                 </div>
               )}
               <DescriptionList
                 density="compact"
-                ariaLabel="Wyniki dla mieszanki"
+                ariaLabel={t.nitrox.results}
                 items={[
-                  { term: 'Maks. głębokość przy 1,4 ata', value: `${formatDecimal(mod(fO2, 1.4))} m` },
-                  { term: 'Maks. głębokość przy 1,6 ata', value: `${formatDecimal(mod(fO2, 1.6))} m` },
+                  { term: t.nitrox.mod14, value: `${t.number(mod(fO2, 1.4), 1)} m` },
+                  { term: t.nitrox.mod16, value: `${t.number(mod(fO2, 1.6), 1)} m` },
                   ...(Number.isFinite(ppO2)
                     ? [
-                        { term: 'Ciśnienie parcjalne tlenu', value: `${formatDecimal(ppO2, 2)} ata` },
-                        {
-                          term: 'Równoważna głębokość powietrzna (EAD)',
-                          value: `${formatDecimal(Math.max(0, ead(fO2, depth)))} m`,
-                        },
-                        {
-                          term: 'Najbogatsza mieszanka na tę głębokość (1,4 ata)',
-                          value: `${bestMix(depth, 1.4)}% tlenu`,
-                        },
+                        { term: t.nitrox.ppO2, value: `${t.number(ppO2, 2)} ata` },
+                        { term: t.nitrox.ead, value: `${t.number(Math.max(0, ead(fO2, depth)), 1)} m` },
+                        { term: t.nitrox.best, value: t.nitrox.bestValue(bestMix(depth, 1.4)) },
                       ]
                     : []),
                 ]}
               />
             </div>
           ) : (
-            <StateBlock
-              state="empty"
-              scope="inline"
-              title="Podaj zawartość tlenu"
-              description="Powietrze to 21%, najczęstsze nitroksy to 32% i 36%."
-            />
+            <StateBlock state="empty" scope="inline" title={t.nitrox.emptyTitle} description={t.nitrox.emptyHint} />
           )}
         </div>
       </Card>

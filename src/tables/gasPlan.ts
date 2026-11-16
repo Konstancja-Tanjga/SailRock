@@ -88,11 +88,13 @@ export function planGas(profile: GasProfile, gas: GasSettings): GasPlan {
   }
 }
 
-/** Zwraca opis błędu w ustawieniach gazu albo null. */
-export function gasSettingsError(gas: GasSettings): string | null {
+export type GasSettingsProblem = 'cylinder' | 'rate' | 'reserve'
+
+/** Zwraca, czego brakuje w ustawieniach gazu, albo null. */
+export function gasSettingsError(gas: GasSettings): GasSettingsProblem | null {
   const positive = (n: number) => Number.isFinite(n) && n > 0
-  if (!positive(gas.volume) || !positive(gas.pressure)) return 'Podaj pojemność i ciśnienie butli'
-  if (!positive(gas.sac) || !positive(gas.stressSac)) return 'Podaj zużycie gazu większe od zera'
-  if (!(gas.reserve >= 0)) return 'Rezerwa nie może być ujemna'
+  if (!positive(gas.volume) || !positive(gas.pressure)) return 'cylinder'
+  if (!positive(gas.sac) || !positive(gas.stressSac)) return 'rate'
+  if (!(gas.reserve >= 0)) return 'reserve'
   return null
 }

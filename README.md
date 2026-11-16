@@ -29,7 +29,7 @@ planner applies and what it shows back. The implementation was done by
 - **Saved plans**, kept on the device.
 - Works offline once installed (PWA) and remembers the last plan on the device.
 
-The interface is in Polish.
+The interface is in Polish and English: it follows the browser's language and switches in the header.
 
 ## Where the numbers come from
 
